@@ -1,0 +1,140 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Student {
+  id                String              @id @default(uuid())
+  email             String              @unique
+  passwordHash      String
+  firstName         String
+  lastName          String
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  
+  learningPaths     LearningPath[]
+  cognitiveMetrics  CognitiveMetric[]
+  quizResults       QuizResult[]
+  sessions          Session[]
+  
+  @@map("students")
+}
+
+model LearningPath {
+  id                String              @id @default(uuid())
+  studentId         String
+  title             String
+  description       String?
+  difficulty        String              @default("medium") // easy, medium, hard
+  status            String              @default("active") // active, completed, paused
+  currentModuleId   String?
+  progress          Float               @default(0) // 0-100
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  
+  student           Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  modules           ContentModule[]
+  pathHistory       PathHistory[]
+  
+  @@map("learning_paths")
+  @@index([studentId])
+}
+
+model ContentModule {
+  id                String              @id @default(uuid())
+  learningPathId    String
+  title             String
+  content           String              // Rich text content (JSON or Markdown)
+  moduleType        String              // lesson, quiz, exercise, recap
+  difficulty        String              @default("medium")
+  estimatedMinutes  Int
+  orderIndex        Int
+  prerequisites     String[]            // Array of module IDs
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  
+  learningPath      LearningPath        @relation(fields: [learningPathId], references: [id], onDelete: Cascade)
+  quizResults       QuizResult[]
+  
+  @@map("content_modules")
+  @@index([learningPathId])
+}
+
+model QuizResult {
+  id                String              @id @default(uuid())
+  studentId         String
+  moduleId          String
+  score             Float               // 0-100
+  totalQuestions    Int
+  correctAnswers    Int
+  timeSpentSeconds  Int
+  answers           Json                // Detailed answer data
+  completedAt       DateTime            @default(now())
+  
+  student           Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  module            ContentModule       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  
+  @@map("quiz_results")
+  @@index([studentId])
+  @@index([moduleId])
+}
+
+model CognitiveMetric {
+  id                    String              @id @default(uuid())
+  studentId             String
+  sessionId             String
+  timestamp             DateTime            @default(now())
+  cognitiveLoadScore    Float               // 0-100 (calculated by CLR Agent)
+  taskSwitchingFreq     Float
+  errorRate             Float
+  procrastinationScore  Float
+  browsingDriftScore    Float
+  timePerConcept        Float               // seconds
+  productivityScore     Float               // day vs night productivity
+  avoidanceBehavior     Json                // Topics being avoided
+  moodScore             Float?              // Sentiment analysis score
+  
+  student               Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  session               Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
+  @@map("cognitive_metrics")
+  @@index([studentId, timestamp])
+  @@index([sessionId])
+}
+
+model Session {
+  id                String              @id @default(uuid())
+  studentId         String
+  startTime         DateTime            @default(now())
+  endTime           DateTime?
+  durationSeconds   Int?
+  deviceInfo        Json?
+  
+  student           Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  cognitiveMetrics  CognitiveMetric[]
+  
+  @@map("sessions")
+  @@index([studentId])
+}
+
+model PathHistory {
+  id                String              @id @default(uuid())
+  learningPathId    String
+  changeType        String              // difficulty_adjusted, module_reordered, module_added, module_removed
+  previousState     Json
+  newState          Json
+  reason            String              // Explanation from Curriculum Agent
+  timestamp         DateTime            @default(now())
+  
+  learningPath      LearningPath        @relation(fields: [learningPathId], references: [id], onDelete: Cascade)
+  
+  @@map("path_history")
+  @@index([learningPathId])
+}
