@@ -5,6 +5,7 @@ import prisma from "./config/database";
 import redis from "./config/redis";
 import { initializeWebSocket } from "./websocket/server";
 import { batchProcessor } from "./services/behaviorBatchProcessor";
+import { redisPubSub } from "./services/redisPubSub";
 import { getBufferStats } from "./utils/redisHelpers";
 import {
   getFallbackQueueSize,
@@ -153,6 +154,11 @@ app.listen(PORT, () => {
 // Initialize WebSocket server
 initializeWebSocket(Number(WS_PORT));
 
+// Initialize Redis pub/sub for agent communication
+redisPubSub.initialize().catch((error) => {
+  console.error("Failed to initialize Redis pub/sub:", error);
+});
+
 // Start batch processor
 if (process.env.ENABLE_BEHAVIOR_TRACKING !== "false") {
   batchProcessor.start();
@@ -161,6 +167,9 @@ if (process.env.ENABLE_BEHAVIOR_TRACKING !== "false") {
 
 // Graceful shutdown
 process.on("SIGINT", async () => {
+  // Cleanup Redis pub/sub
+  await redisPubSub.cleanup();
+
   console.log("\n⏳ Shutting down gracefully...");
 
   // Stop batch processor

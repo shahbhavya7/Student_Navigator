@@ -8,6 +8,9 @@ import {
 } from "../models/BehaviorEvent";
 import { bufferBehaviorEvent, getBehaviorEvents } from "../config/redis";
 import redis from "../config/redis";
+import { pythonBridge } from "../services/pythonBridge";
+import { redisPubSub } from "../services/redisPubSub";
+import prisma from "../config/database";
 
 // Rate limiting map: sessionId -> { count, resetTime }
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -325,9 +328,45 @@ export async function handleSessionStart(
       return;
     }
 
+    // Ensure student exists in database (auto-create for testing)
+    const studentExists = await prisma.student.findUnique({
+      where: { id: studentId },
+    });
+
+    if (!studentExists) {
+      await prisma.student.create({
+        data: {
+          id: studentId,
+          email: `${studentId}@temp.local`,
+          passwordHash: "temp",
+          firstName: "Test",
+          lastName: "Student",
+        },
+      });
+      console.log(`✨ Auto-created student: ${studentId}`);
+    }
+
+    // Create session in PostgreSQL
+    try {
+      await prisma.session.create({
+        data: {
+          id: sessionId,
+          studentId: studentId,
+          startTime: new Date(),
+          deviceInfo: metadata || {},
+        },
+      });
+    } catch (dbError: any) {
+      // If session already exists (P2002), that's OK - session might have been restarted
+      if (dbError.code !== "P2002") {
+        throw dbError;
+      }
+      console.log(`Session ${sessionId} already exists in database`);
+    }
+
     // Initialize session in Redis
     const sessionKey = `session:${sessionId}`;
-    await redis.hset(sessionKey, {
+    await redis.hmset(sessionKey, {
       studentId,
       startTime: Date.now().toString(),
       lastActivity: Date.now().toString(),
@@ -389,6 +428,27 @@ export async function handleSessionEnd(
       endTime: Date.now().toString(),
       status: "ended",
     });
+
+    // Trigger Python agent workflow
+    try {
+      const studentId = socket.data.studentId || "demo-student";
+      await pythonBridge.triggerAgentWorkflow(
+        studentId,
+        sessionId,
+        "session_end"
+      );
+
+      // Also publish to Redis pub/sub for Python backend
+      await redisPubSub.publishEvent("sessions:ended", {
+        type: "session_ended",
+        student_id: studentId,
+        session_id: sessionId,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error("Error triggering agent workflow:", error);
+      // Don't fail the session end if agent trigger fails
+    }
 
     socket.emit("session:end:ack", {
       success: true,
