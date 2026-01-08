@@ -4,7 +4,8 @@ import { BehaviorTrackingWrapper } from "@/components/BehaviorTrackingWrapper";
 
 export const metadata: Metadata = {
   title: "Adaptive Student Navigator",
-  description: "Intelligent personalized learning platform with real-time cognitive load tracking",
+  description:
+    "Intelligent personalized learning platform with real-time cognitive load tracking",
 };
 
 export default function RootLayout({
@@ -15,9 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <BehaviorTrackingWrapper>
-          {children}
-        </BehaviorTrackingWrapper>
+        <BehaviorTrackingWrapper>{children}</BehaviorTrackingWrapper>
       </body>
     </html>
   );
