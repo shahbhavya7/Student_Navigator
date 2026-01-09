@@ -114,3 +114,98 @@ class AgentHealthResponse(BaseModel):
     agents: Dict[str, Dict[str, Any]]
     workflow_stats: Dict[str, Any]
     pubsub_status: str
+
+
+# CLR-specific Pydantic schemas
+
+class CLRCurrentResponse(BaseModel):
+    """Current cognitive load data response"""
+    student_id: str
+    cognitive_load_score: float = Field(..., ge=0, le=100)
+    mental_fatigue_level: str
+    detected_patterns: List[str]
+    mood_indicators: Dict[str, Any]
+    timestamp: int
+    session_id: str
+
+
+class CLRHistoryResponse(BaseModel):
+    """Cognitive load history response"""
+    student_id: str
+    time_range: str
+    granularity: str
+    history: List[Dict[str, Any]]
+    statistics: Dict[str, float]
+    trend: str
+    trend_slope: float
+    data_points: int
+
+
+class CLRInsightsResponse(BaseModel):
+    """AI-generated insights response"""
+    student_id: str
+    insights: str
+    recommendations: List[str]
+    generated_at: int
+
+
+class CLRPatternsResponse(BaseModel):
+    """Detected patterns analysis response"""
+    student_id: str
+    days_analyzed: int
+    patterns: Dict[str, int]
+    most_common_pattern: Optional[str]
+    total_pattern_detections: int
+
+
+class CLRBaselineResponse(BaseModel):
+    """Baseline metrics response"""
+    student_id: str
+    baseline_avg: float
+    baseline_std: float
+    baseline_range: Dict[str, float]
+    current_score: Optional[float]
+    deviation_from_baseline: Optional[float]
+    common_patterns: List[Any]
+    data_points: int
+    calculated_at: str
+
+
+class TextAnalysisRequest(BaseModel):
+    """Text mood analysis request"""
+    student_id: str
+    text: str
+    context: str = ""
+
+
+class TextAnalysisResponse(BaseModel):
+    """Text mood analysis response"""
+    student_id: str
+    mood_score: float = Field(..., ge=-1, le=1)
+    dominant_emotion: str
+    confidence: float = Field(..., ge=0, le=1)
+    explanation: str
+
+
+class CLRPredictionResponse(BaseModel):
+    """Cognitive load prediction response"""
+    student_id: str
+    predicted_load_15min: float
+    predicted_load_30min: float
+    trend: str
+    confidence: float
+    early_intervention_needed: bool
+    recommendations: List[str] = []
+
+
+class CLRDashboardResponse(BaseModel):
+    """Comprehensive dashboard response"""
+    student_id: str
+    current: CLRCurrentResponse
+    history: CLRHistoryResponse
+    insights: CLRInsightsResponse
+    patterns: CLRPatternsResponse
+    baseline: CLRBaselineResponse
+    predictions: CLRPredictionResponse
+    timestamp: int
+

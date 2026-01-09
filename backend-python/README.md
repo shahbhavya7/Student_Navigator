@@ -6,18 +6,75 @@ AI Agent orchestration service using FastAPI and LangGraph for intelligent learn
 
 This service integrates with the Node.js backend through REST APIs and Redis pub/sub to provide:
 
-- **Cognitive Load Recognition (CLR Agent)**: Analyzes behavioral data to calculate real-time cognitive load
+- **Enhanced Cognitive Load Radar (CLR) Agent**: Advanced multi-layered cognitive load analysis with:
+  - ML-based pattern recognition for mental strain detection
+  - Sentiment analysis for mood tracking from text and typing patterns
+  - Historical baseline comparison with anomaly detection
+  - LLM-powered personalized insights and recommendations
+  - Predictive analytics for proactive interventions
 - **Performance Analysis (Performance Agent)**: Tracks learning velocity and improvement trends
 - **Engagement Tracking (Engagement Agent)**: Monitors student engagement and dropout risk
 - **Curriculum Adaptation (Curriculum Agent)**: Adjusts learning paths based on cognitive load
 - **Motivation & Intervention (Motivation Agent)**: Generates timely support messages
+
+## CLR Agent Features
+
+### Advanced Pattern Recognition
+
+- Task-switching patterns (rapid context switching detection)
+- Error clustering (mental fatigue signals)
+- Procrastination loops (idle-navigation-idle cycles)
+- Browsing drift patterns
+- Avoidance behavior (topics with low engagement)
+- Micro-break analysis (optimal: 5-10 min breaks every 25-50 min)
+- Night productivity degradation tracking
+
+### Mood Analysis
+
+- LLM-based sentiment analysis from text inputs
+- Typing pattern mood detection (WPM, backspace rate, pauses)
+- Temporal mood trend tracking with drop detection
+- Integration with quiz answers, search queries, and typing data
+
+### Time-Series Storage
+
+- Redis sorted sets for cognitive load history (30-day TTL)
+- PostgreSQL batch writes for persistent storage
+- Baseline metrics calculation (7-day rolling averages)
+- Historical comparison and anomaly detection
+
+### Comprehensive API Endpoints
+
+- `GET /api/clr/current/{student_id}` - Real-time cognitive load
+- `GET /api/clr/history/{student_id}` - Time-series data with trends
+- `GET /api/clr/session/{session_id}` - Session-specific analysis
+- `GET /api/clr/insights/{student_id}` - AI-generated insights (cached 5 min)
+- `GET /api/clr/patterns/{student_id}` - Pattern frequency analysis
+- `GET /api/clr/baseline/{student_id}` - Baseline metrics
+- `POST /api/clr/analyze-text` - Mood analysis from text
+- `GET /api/clr/predictions/{student_id}` - Predictive analytics
+- `GET /api/clr/dashboard/{student_id}` - Comprehensive dashboard data
+
+### Real-Time Updates
+
+- WebSocket integration for live CLR updates
+- Redis pub/sub for agent-to-frontend communication
+- Throttled updates (max 1 per 30 seconds per student)
+- Targeted broadcasts by student ID
+
+### Background Services
+
+- Daily baseline recalculation (2 AM)
+- Automated data cleanup (3 AM, 30-day retention)
+- Weekly summary reports (Sunday midnight)
 
 ## Technology Stack
 
 - **FastAPI**: Modern Python web framework
 - **LangGraph**: Agent orchestration with state management
 - **LangChain**: LLM integration for intelligent agents
-- **Redis**: Pub/sub messaging and caching
+- **Google Generative AI**: Gemini 1.5 Flash for sentiment analysis and insights
+- **Redis**: Pub/sub messaging, caching, and time-series storage
 - **PostgreSQL**: Data persistence via SQLAlchemy
 - **Pydantic**: Data validation and settings management
 
@@ -29,6 +86,7 @@ This service integrates with the Node.js backend through REST APIs and Redis pub
 - PostgreSQL 14+
 - Redis 7+
 - Node.js backend running (for integration)
+- Google AI API key (for LLM features)
 
 ### Installation
 
@@ -49,7 +107,11 @@ This service integrates with the Node.js backend through REST APIs and Redis pub
 
    ```bash
    cp .env.example .env
-   # Edit .env with your configuration
+   # Edit .env with your configuration:
+   # - DATABASE_URL
+   # - REDIS_URL
+   # - GOOGLE_API_KEY (required for CLR agent)
+   # - NODE_BACKEND_URL
    ```
 
 4. **Run the service:**

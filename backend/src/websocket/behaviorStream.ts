@@ -23,6 +23,13 @@ let circuitOpenTime = 0;
 const CIRCUIT_BREAKER_TIMEOUT = 30000; // 30 seconds
 const inMemoryFallbackQueue: NormalizedBehaviorEvent[] = [];
 
+// CLR update throttling: studentId -> lastUpdateTime
+const clrUpdateThrottle = new Map<string, number>();
+const CLR_UPDATE_INTERVAL = 30000; // 30 seconds between updates per student
+
+// Track connected clients by student ID for targeted broadcasts
+const studentConnections = new Map<string, Set<string>>(); // studentId -> Set<socketId>
+
 /**
  * Check rate limit for a session
  */
@@ -485,4 +492,85 @@ export function getCircuitBreakerStatus(): { open: boolean; since?: number } {
     open: redisCircuitOpen,
     since: redisCircuitOpen ? circuitOpenTime : undefined,
   };
+}
+
+/**
+ * Register student connection for targeted CLR broadcasts
+ */
+export function registerStudentConnection(
+  studentId: string,
+  socketId: string
+): void {
+  if (!studentConnections.has(studentId)) {
+    studentConnections.set(studentId, new Set());
+  }
+  studentConnections.get(studentId)!.add(socketId);
+  console.log(`📡 Student ${studentId} connected on socket ${socketId}`);
+}
+
+/**
+ * Unregister student connection
+ */
+export function unregisterStudentConnection(
+  studentId: string,
+  socketId: string
+): void {
+  const sockets = studentConnections.get(studentId);
+  if (sockets) {
+    sockets.delete(socketId);
+    if (sockets.size === 0) {
+      studentConnections.delete(studentId);
+    }
+  }
+}
+
+/**
+ * Broadcast CLR update to specific student
+ */
+export function broadcastCLRUpdate(
+  io: any,
+  studentId: string,
+  clrData: any
+): void {
+  // Check throttling
+  const now = Date.now();
+  const lastUpdate = clrUpdateThrottle.get(studentId);
+
+  if (lastUpdate && now - lastUpdate < CLR_UPDATE_INTERVAL) {
+    console.log(`⏱️ CLR update throttled for student ${studentId}`);
+    return;
+  }
+
+  // Update throttle timestamp
+  clrUpdateThrottle.set(studentId, now);
+
+  // Get connected sockets for this student
+  const sockets = studentConnections.get(studentId);
+
+  if (!sockets || sockets.size === 0) {
+    console.log(`📭 No active connections for student ${studentId}`);
+    return;
+  }
+
+  // Broadcast to all student's sockets
+  const message = {
+    type: "COGNITIVE_LOAD_UPDATE",
+    data: {
+      studentId: clrData.student_id,
+      sessionId: clrData.session_id,
+      cognitiveLoadScore: clrData.cognitive_load_score,
+      mentalFatigueLevel: clrData.mental_fatigue_level,
+      detectedPatterns: clrData.detected_patterns || [],
+      recommendations: clrData.recommendations || [],
+      timestamp: clrData.timestamp || Date.now(),
+    },
+  };
+
+  sockets.forEach((socketId) => {
+    io.to(socketId).emit("clr:update", message);
+  });
+
+  console.log(
+    `📊 CLR update broadcasted to ${sockets.size} connection(s) for student ${studentId}`
+  );
 }

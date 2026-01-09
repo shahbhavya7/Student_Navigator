@@ -10,6 +10,7 @@ from api.health import router as health_router
 from api.bridge import router as bridge_router
 from services.event_consumer import event_consumer
 from services.pubsub_handler import pubsub_listener
+from services.clr_maintenance import clr_maintenance_service
 
 # Configure logging
 logging.basicConfig(
@@ -37,9 +38,13 @@ async def lifespan(app: FastAPI):
         await event_consumer.start()
         await pubsub_listener.start()
         
+        # Start CLR maintenance service
+        await clr_maintenance_service.start()
+        
         logger.info("✅ Python Backend started successfully")
         logger.info(f"📡 API available at http://0.0.0.0:8000")
         logger.info(f"📚 API docs at http://0.0.0.0:8000/docs")
+        logger.info("🔧 CLR maintenance service started")
         
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}")
@@ -54,6 +59,7 @@ async def lifespan(app: FastAPI):
         # Stop background services
         await event_consumer.stop()
         await pubsub_listener.stop()
+        await clr_maintenance_service.stop()
         
         # Close connections
         await redis_client.disconnect()
@@ -89,6 +95,10 @@ app.add_middleware(
 # Include routers
 app.include_router(health_router)
 app.include_router(bridge_router)
+
+# Import and include CLR router
+from api.clr import router as clr_router
+app.include_router(clr_router)
 
 
 @app.get("/")

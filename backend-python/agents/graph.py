@@ -5,73 +5,11 @@ import time
 
 from agents.state import AgentState
 from agents.base_agent import BaseAgent
+from agents.clr_agent import CognitiveLoadRadarAgent
 from config.redis_client import redis_client
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
-
-
-# Placeholder agent implementations (to be expanded in future phases)
-
-class CLRAgent(BaseAgent):
-    """Cognitive Load Recognition Agent"""
-    
-    async def execute(self, state: AgentState) -> Dict[str, Any]:
-        """Calculate cognitive load score from behavioral metrics"""
-        try:
-            metrics = state.get("aggregated_metrics", {})
-            
-            # Weighted cognitive load calculation
-            weights = {
-                "taskSwitchingFreq": 0.25,
-                "errorRate": 0.20,
-                "procrastinationScore": 0.20,
-                "browsingDriftScore": 0.15,
-                "avgTimePerConcept": 0.10,
-                "productivityScore": 0.10
-            }
-            
-            task_switching = min(metrics.get("taskSwitchingFreq", 0) * 10, 100)
-            error_rate = metrics.get("errorRate", 0) * 100
-            procrastination = min(metrics.get("procrastinationScore", 0), 100)
-            browsing_drift = metrics.get("browsingDriftScore", 0) * 100
-            time_per_concept = min((metrics.get("avgTimePerConcept", 0) / 60000) * 20, 100)
-            productivity = 100 - metrics.get("productivityScore", 50)
-            
-            cognitive_load = (
-                task_switching * weights["taskSwitchingFreq"] +
-                error_rate * weights["errorRate"] +
-                procrastination * weights["procrastinationScore"] +
-                browsing_drift * weights["browsingDriftScore"] +
-                time_per_concept * weights["avgTimePerConcept"] +
-                productivity * weights["productivityScore"]
-            )
-            
-            cognitive_load = max(0, min(cognitive_load, 100))
-            
-            # Determine mental fatigue level
-            if cognitive_load < settings.CLR_THRESHOLD_LOW:
-                fatigue_level = "low"
-            elif cognitive_load < settings.CLR_THRESHOLD_MEDIUM:
-                fatigue_level = "medium"
-            elif cognitive_load < settings.CLR_THRESHOLD_HIGH:
-                fatigue_level = "high"
-            else:
-                fatigue_level = "critical"
-            
-            output = {
-                "cognitive_load_score": cognitive_load,
-                "mental_fatigue_level": fatigue_level
-            }
-            
-            self.log_execution(state, output)
-            await self.publish_event("cognitive_load_calculated", output)
-            
-            return output
-            
-        except Exception as e:
-            self.log_error(e, state)
-            return {"cognitive_load_score": 50.0, "mental_fatigue_level": "medium"}
 
 
 class PerformanceAgent(BaseAgent):
@@ -218,7 +156,7 @@ class MotivationAgent(BaseAgent):
 
 
 # Initialize agent instances
-clr_agent = CLRAgent("clr_agent")
+clr_agent_instance = CognitiveLoadRadarAgent()
 performance_agent = PerformanceAgent("performance_agent")
 engagement_agent = EngagementAgent("engagement_agent")
 curriculum_agent = CurriculumAgent("curriculum_agent")
@@ -233,26 +171,52 @@ async def fetch_behavioral_data_node(state: AgentState) -> AgentState:
         session_id = state["session_id"]
         events = await redis_client.get_behavioral_events(session_id)
         
-        # Simple aggregation (matches EventAggregator logic)
-        task_switches = sum(1 for e in events if e.get("eventType") == "TASK_SWITCH")
-        errors = sum(1 for e in events if e.get("eventType") == "QUIZ_ERROR")
-        idle_events = [e for e in events if e.get("eventType") == "IDLE_TIME"]
+        # Normalize events: map eventType to type, eventData to metadata
+        normalized_events = []
+        for e in events:
+            normalized = {
+                'type': e.get('eventType', e.get('type', 'unknown')),
+                'timestamp': e.get('timestamp', 0),
+                'duration': e.get('duration', 0),
+                'metadata': e.get('eventData', e.get('metadata', {}))
+            }
+            
+            # Ensure hasError is in metadata for error detection
+            if 'eventData' in e:
+                event_data = e['eventData']
+                if isinstance(event_data, dict):
+                    if 'hasError' in event_data:
+                        normalized['metadata']['hasError'] = event_data['hasError']
+                    if 'errorCount' in event_data:
+                        normalized['metadata']['hasError'] = event_data['errorCount'] > 0
+            
+            # Copy any other relevant fields
+            for key in ['sessionId', 'studentId']:
+                if key in e:
+                    normalized[key] = e[key]
+            
+            normalized_events.append(normalized)
         
-        total_idle = sum(e.get("eventData", {}).get("idleDuration", 0) for e in idle_events)
+        # Simple aggregation (matches EventAggregator logic) - using normalized events
+        task_switches = sum(1 for e in normalized_events if e.get("type") == "TASK_SWITCH")
+        errors = sum(1 for e in normalized_events if e.get("type") == "QUIZ_ERROR" or e.get("metadata", {}).get("hasError", False))
+        idle_events = [e for e in normalized_events if e.get("type") == "IDLE_TIME"]
+        
+        total_idle = sum(e.get("duration", e.get("metadata", {}).get("idleDuration", 0)) for e in idle_events)
         
         aggregated_metrics = {
-            "taskSwitchingFreq": task_switches / max(len(events), 1),
-            "errorRate": errors / max(len(events), 1),
+            "taskSwitchingFreq": task_switches / max(len(normalized_events), 1),
+            "errorRate": errors / max(len(normalized_events), 1),
             "procrastinationScore": min(total_idle / 60000, 100),  # Convert to minutes
             "browsingDriftScore": 0.0,  # Placeholder
             "avgTimePerConcept": 30000,  # Placeholder
             "productivityScore": 50.0  # Placeholder
         }
         
-        state["behavioral_events"] = events
+        state["behavioral_events"] = normalized_events  # Use normalized events
         state["aggregated_metrics"] = aggregated_metrics
         
-        logger.info(f"📊 Aggregated {len(events)} events for session {session_id}")
+        logger.info(f"📊 Aggregated {len(normalized_events)} events for session {session_id}")
         
     except Exception as e:
         logger.error(f"Error fetching behavioral data: {e}")
@@ -263,11 +227,18 @@ async def fetch_behavioral_data_node(state: AgentState) -> AgentState:
 
 
 async def clr_agent_node(state: AgentState) -> AgentState:
-    """Execute CLR Agent"""
-    output = await clr_agent.execute(state)
-    state.update(output)
+    """Execute Enhanced CLR Agent"""
+    output_state = await clr_agent_instance.execute(state)
+    state.update(output_state)
     state["agents_executed"].append("clr_agent")
-    state["agent_outputs"]["clr_agent"] = output
+    
+    # Extract CLR result for backward compatibility
+    if "clr_result" in output_state:
+        clr_result = output_state["clr_result"]
+        state["cognitive_load_score"] = clr_result.get("cognitive_load_score", 50)
+        state["mental_fatigue_level"] = clr_result.get("mental_fatigue_level", "medium")
+        state["agent_outputs"]["clr_agent"] = clr_result
+    
     return state
 
 

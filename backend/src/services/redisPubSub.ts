@@ -37,6 +37,7 @@ class RedisPubSubHandler {
         "interventions",
         "curriculum_updates",
         "agent:clr",
+        "agent:clr_agent",
         "agent:performance",
         "agent:engagement",
         "agent:curriculum",
@@ -50,7 +51,9 @@ class RedisPubSubHandler {
         this.handleMessage(channel, message);
       });
 
-      console.log("📡 Subscribed to Redis pub/sub channels for agent events");
+      console.log(
+        "📡 Subscribed to Redis pub/sub channels for agent events (including CLR)"
+      );
     } catch (error) {
       console.error("Error initializing Redis pub/sub:", error);
       throw error;
@@ -74,12 +77,41 @@ class RedisPubSubHandler {
         case "curriculum_updates":
           this.handleCurriculumUpdate(event);
           break;
+        case "agent:clr":
+        case "agent:clr_agent":
+          this.handleCLRUpdate(event);
+          break;
         default:
           // Log other agent events
           console.log(`🤖 Agent event [${channel}]: ${event.type}`);
       }
     } catch (error) {
       console.error(`Error parsing message from ${channel}:`, error);
+    }
+  }
+
+  /**
+   * Handle CLR update events from Python CLR Agent
+   */
+  private handleCLRUpdate(event: AgentEvent): void {
+    try {
+      const { student_id, data } = event;
+
+      if (!student_id || !data) {
+        console.error("Invalid CLR update event:", event);
+        return;
+      }
+
+      console.log(
+        `📊 CLR update for student ${student_id}: Score ${data.cognitive_load_score}`
+      );
+
+      // Import broadcastCLRUpdate dynamically to avoid circular dependency
+      import("../websocket/behaviorStream").then(({ broadcastCLRUpdate }) => {
+        broadcastCLRUpdate(io, student_id, data);
+      });
+    } catch (error) {
+      console.error("Error handling CLR update:", error);
     }
   }
 

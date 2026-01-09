@@ -122,24 +122,104 @@ class RedisClient:
             logger.error(f"Error retrieving agent state: {e}")
             return None
     
-    async def get_cognitive_load_history(self, student_id: str, days: int = 7) -> List[float]:
-        """Get cognitive load history from time-series data"""
+    async def get_cognitive_load_history(self, student_id: str, days: int = 7, 
+                                         time_range: str = None, include_metadata: bool = False) -> List:
+        """
+        Get cognitive load history from time-series data with enhanced options.
+        
+        Args:
+            student_id: Student identifier
+            days: Number of days of history (used if time_range not specified)
+            time_range: Specific time range (last_hour, last_day, last_week, last_month)
+            include_metadata: Whether to include full metadata or just scores
+            
+        Returns:
+            List of cognitive load data (scores or full metadata)
+        """
         try:
             key = f"clr:{student_id}"
+            
+            # Calculate time range
+            if time_range:
+                range_map = {
+                    'last_hour': 1 * 60 * 60 * 1000,
+                    'last_day': 24 * 60 * 60 * 1000,
+                    'last_week': 7 * 24 * 60 * 60 * 1000,
+                    'last_month': 30 * 24 * 60 * 60 * 1000
+                }
+                time_delta = range_map.get(time_range, 7 * 24 * 60 * 60 * 1000)
+            else:
+                time_delta = days * 24 * 60 * 60 * 1000
+            
             end_time = int(time.time() * 1000)
-            start_time = end_time - (days * 24 * 60 * 60 * 1000)
+            start_time = end_time - time_delta
             
             # Get range from sorted set
             results = await self.data_client.zrangebyscore(
-                key, start_time, end_time, withscores=False
+                key, start_time, end_time, withscores=True
             )
             
-            # Parse scores
-            scores = [float(score) for score in results if score]
-            return scores
+            if include_metadata:
+                # Return full metadata
+                history = []
+                for value, timestamp in results:
+                    try:
+                        import json
+                        data = json.loads(value) if isinstance(value, str) else value
+                        history.append({
+                            'timestamp': int(timestamp),
+                            'score': data.get('score', 0) if isinstance(data, dict) else float(data),
+                            'metadata': data if isinstance(data, dict) else {}
+                        })
+                    except:
+                        continue
+                return history
+            else:
+                # Return just scores
+                scores = [float(score) for score, _ in results if score]
+                return scores
+                
         except Exception as e:
             logger.error(f"Error retrieving cognitive load history: {e}")
             return []
+    
+    def store_clr_timeseries(self, student_id: str, timestamp: int, score: float, metadata: dict = None):
+        """
+        Store cognitive load in Redis time-series (sorted set).
+        
+        Args:
+            student_id: Student identifier
+            timestamp: Unix timestamp in milliseconds
+            score: Cognitive load score
+            metadata: Optional metadata dictionary
+        """
+        try:
+            key = f"clr:{student_id}"
+            
+            # If metadata provided, store as JSON
+            if metadata:
+                import json
+                value = json.dumps({
+                    'score': score,
+                    **metadata
+                })
+            else:
+                value = str(score)
+            
+            # Store in sorted set
+            self.data_client.zadd(key, {value: timestamp})
+            
+            # Set TTL of 30 days
+            self.data_client.expire(key, 30 * 24 * 60 * 60)
+            
+            # Store metadata in separate hash if provided
+            if metadata:
+                meta_key = f"clr_meta:{student_id}:{timestamp}"
+                self.data_client.hset(meta_key, mapping=metadata)
+                self.data_client.expire(meta_key, 30 * 24 * 60 * 60)
+                
+        except Exception as e:
+            logger.error(f"Error storing CLR timeseries: {e}")
 
 
 # Global Redis client instance
