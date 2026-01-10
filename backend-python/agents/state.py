@@ -45,3 +45,10 @@ class AgentState(TypedDict):
     agents_executed: List[str]
     agent_outputs: Dict[str, Any]
     execution_errors: List[str]
+    
+    # Student profile
+    student_profile: Optional[Dict]
+    weak_topics: List[str]
+    task_completion_rate: float
+    return_frequency: Dict
+    dropout_signals: List[str]

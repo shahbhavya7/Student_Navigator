@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     CLR_THRESHOLD_MEDIUM: int = 60
     CLR_THRESHOLD_HIGH: int = 80
     
+    # Intervention Configuration
+    INTERVENTION_MIN_INTERVAL_MINUTES: int = 5
+    INTERVENTION_CRITICAL_BYPASS_THROTTLE: bool = True
+    INTERVENTION_EFFECTIVENESS_WINDOW_MINUTES: int = 15
+    INTERVENTION_MESSAGE_CACHE_TTL_SECONDS: int = 300
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

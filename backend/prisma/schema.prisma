@@ -23,6 +23,7 @@ model Student {
   cognitiveMetrics  CognitiveMetric[]
   quizResults       QuizResult[]
   sessions          Session[]
+  interventions     Intervention[]
   
   @@map("students")
 }
@@ -137,4 +138,24 @@ model PathHistory {
   
   @@map("path_history")
   @@index([learningPathId])
+}
+
+model Intervention {
+  id                String              @id @default(uuid())
+  studentId         String
+  sessionId         String
+  interventionType  String              // break_suggestion, topic_switch, recap_prompt, encouragement, difficulty_adjustment
+  priority          String              // low, medium, high, critical
+  message           String
+  context           Json                // Trigger context (cognitive_load, performance_data, etc.)
+  deliveredAt       DateTime            @default(now())
+  acknowledgedAt    DateTime?
+  effectiveness     Float?              // 0-1 score measured post-intervention
+  outcome           String?             // improved, no_change, declined
+  
+  student           Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  @@map("interventions")
+  @@index([studentId, deliveredAt])
+  @@index([sessionId])
 }

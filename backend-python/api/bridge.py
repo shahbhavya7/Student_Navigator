@@ -207,44 +207,81 @@ async def curriculum_adjustment(request: CurriculumAdjustmentRequest):
     """
     Trigger Curriculum Agent to adjust learning path
     
-    Returns proposed curriculum changes
+    Returns proposed curriculum changes with detailed analysis
     """
     
     try:
-        # Placeholder implementation
-        adjustments = [
-            {
-                "type": "difficulty_adjustment",
-                "reason": request.reason,
-                "change": "moderate",
-                "modules_affected": []
-            }
-        ]
+        from agents.curriculum_agent import CurriculumAgent
+        from curriculum.state_manager import CurriculumStateManager
+        from curriculum.learning_graph import load_learning_path
+        from agents.state import AgentState
         
-        # Publish curriculum update
+        # Initialize curriculum agent
+        curriculum_agent = CurriculumAgent("curriculum_agent")
+        state_manager = CurriculumStateManager()
+        
+        # Get current curriculum state
+        current_state = await state_manager.get_current_state(
+            request.student_id,
+            request.learning_path_id
+        )
+        
+        # Load learning path
+        learning_graph = await load_learning_path(request.learning_path_id)
+        
+        # Build agent state with context
+        context = request.context or {}
+        agent_state = AgentState(
+            student_id=request.student_id,
+            session_id=context.get("session_id", "manual_adjustment"),
+            learning_path_id=request.learning_path_id,
+            cognitive_load=context.get("cognitive_load", {}),
+            performance_metrics=context.get("performance_metrics", {}),
+            engagement_metrics=context.get("engagement_metrics", {}),
+            completed_modules=current_state.get("completed_modules", [])
+        )
+        
+        # Execute curriculum agent
+        result = await curriculum_agent.execute(agent_state)
+        
+        adjustments = result.get("curriculum_adjustments", [])
+        target_difficulty = result.get("difficulty_level", current_state.get("difficulty"))
+        
+        # Calculate duration change
+        total_time_change = sum(
+            adj.get("estimated_impact", {}).get("expected_time_change_minutes", 0)
+            for adj in adjustments
+        )
+        
+        # Publish comprehensive curriculum update
         await redis_client.publish_agent_event(
             "curriculum_updates",
             {
                 "type": "curriculum_adjusted",
                 "student_id": request.student_id,
                 "learning_path_id": request.learning_path_id,
-                "adjustments": adjustments
+                "adjustments": adjustments,
+                "target_difficulty": target_difficulty,
+                "rationale": result.get("adjustment_rationale", ""),
+                "confidence": result.get("adjustment_confidence", 0),
+                "timestamp": int(time.time())
             }
         )
         
         logger.info(
-            f"📚 Curriculum adjustment requested for student {request.student_id}, "
-            f"path {request.learning_path_id}"
+            f"📚 Curriculum adjusted for student {request.student_id}, "
+            f"path {request.learning_path_id}: {len(adjustments)} adjustments applied"
         )
         
         return CurriculumAdjustmentResponse(
             student_id=request.student_id,
             learning_path_id=request.learning_path_id,
             adjustments=adjustments,
-            difficulty_change="moderate",
-            estimated_duration_change=0
+            difficulty_change=target_difficulty if target_difficulty != current_state.get("difficulty") else None,
+            estimated_duration_change=total_time_change if total_time_change != 0 else None
         )
         
     except Exception as e:
         logger.error(f"Error adjusting curriculum: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+

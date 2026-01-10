@@ -131,6 +131,9 @@ class RedisPubSubHandler {
         `🚨 Delivering intervention to student ${student_id}: ${intervention.type}`
       );
 
+      // Extract intervention_id from id or intervention_id field
+      const interventionId = intervention.intervention_id || intervention.id;
+
       // Send intervention via WebSocket notifications namespace
       const notificationsNs = io.of("/notifications");
       notificationsNs.to(`student:${student_id}`).emit("notification", {
@@ -138,7 +141,7 @@ class RedisPubSubHandler {
         priority: intervention.priority || "medium",
         message: intervention.message,
         metadata: {
-          intervention_id: intervention.intervention_id,
+          intervention_id: interventionId,
           intervention_type: intervention.type,
           timestamp: intervention.timestamp,
         },

@@ -6,153 +6,15 @@ import time
 from agents.state import AgentState
 from agents.base_agent import BaseAgent
 from agents.clr_agent import CognitiveLoadRadarAgent
+from agents.performance_agent import PerformanceAgent
+from agents.engagement_agent import EngagementAgent
+from agents.curriculum_agent import CurriculumAgent
+from agents.motivation_agent import MotivationAgent
+from analytics.performance_profile import PerformanceProfileGenerator
 from config.redis_client import redis_client
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
-
-
-class PerformanceAgent(BaseAgent):
-    """Performance Analysis Agent"""
-    
-    async def execute(self, state: AgentState) -> Dict[str, Any]:
-        """Analyze student performance metrics"""
-        try:
-            # Placeholder implementation
-            metrics = state.get("aggregated_metrics", {})
-            
-            output = {
-                "performance_metrics": {
-                    "quiz_accuracy": state.get("quiz_accuracy", 0.0),
-                    "learning_velocity": metrics.get("productivityScore", 50) / 100,
-                    "improvement_trend": "stable"
-                }
-            }
-            
-            self.log_execution(state, output)
-            return output
-            
-        except Exception as e:
-            self.log_error(e, state)
-            return {"performance_metrics": {}}
-
-
-class EngagementAgent(BaseAgent):
-    """Student Engagement Agent"""
-    
-    async def execute(self, state: AgentState) -> Dict[str, Any]:
-        """Calculate engagement score"""
-        try:
-            metrics = state.get("aggregated_metrics", {})
-            
-            # Simple engagement calculation
-            engagement_score = (
-                (100 - metrics.get("procrastinationScore", 50)) * 0.4 +
-                (100 - metrics.get("browsingDriftScore", 0.5) * 100) * 0.3 +
-                metrics.get("productivityScore", 50) * 0.3
-            )
-            
-            output = {
-                "engagement_score": engagement_score,
-                "dropout_risk": 1 - (engagement_score / 100)
-            }
-            
-            self.log_execution(state, output)
-            return output
-            
-        except Exception as e:
-            self.log_error(e, state)
-            return {"engagement_score": 50.0, "dropout_risk": 0.5}
-
-
-class CurriculumAgent(BaseAgent):
-    """Curriculum Adjustment Agent"""
-    
-    async def execute(self, state: AgentState) -> Dict[str, Any]:
-        """Adjust learning path based on cognitive load and performance"""
-        try:
-            cognitive_load = state.get("cognitive_load_score", 50)
-            
-            adjustments = []
-            
-            if cognitive_load > settings.CLR_THRESHOLD_HIGH:
-                adjustments.append({
-                    "type": "difficulty_reduction",
-                    "reason": "High cognitive load detected",
-                    "adjustment": "Reduce difficulty by one level"
-                })
-            elif cognitive_load < settings.CLR_THRESHOLD_LOW:
-                adjustments.append({
-                    "type": "difficulty_increase",
-                    "reason": "Low cognitive load - student ready for challenge",
-                    "adjustment": "Increase difficulty by one level"
-                })
-            
-            output = {
-                "curriculum_adjustments": adjustments,
-                "difficulty_level": "medium"  # Placeholder
-            }
-            
-            self.log_execution(state, output)
-            await self.publish_event("curriculum_adjusted", output)
-            
-            return output
-            
-        except Exception as e:
-            self.log_error(e, state)
-            return {"curriculum_adjustments": []}
-
-
-class MotivationAgent(BaseAgent):
-    """Motivation & Intervention Agent"""
-    
-    async def execute(self, state: AgentState) -> Dict[str, Any]:
-        """Generate interventions for high cognitive load"""
-        try:
-            cognitive_load = state.get("cognitive_load_score", 50)
-            fatigue_level = state.get("mental_fatigue_level", "medium")
-            
-            interventions = []
-            
-            if cognitive_load >= settings.CLR_THRESHOLD_HIGH:
-                interventions.append({
-                    "type": "break_suggestion",
-                    "priority": "high",
-                    "message": "You've been working hard! Consider taking a 5-minute break.",
-                    "timestamp": int(time.time())
-                })
-            
-            if fatigue_level == "critical":
-                interventions.append({
-                    "type": "encouragement",
-                    "priority": "critical",
-                    "message": "Great effort! Let's adjust the pace to help you succeed.",
-                    "timestamp": int(time.time())
-                })
-            
-            # Publish interventions to Redis for Node.js to deliver
-            for intervention in interventions:
-                await redis_client.publish_agent_event(
-                    "interventions",
-                    {
-                        "type": "intervention_triggered",
-                        "student_id": state["student_id"],
-                        "session_id": state["session_id"],
-                        "intervention": intervention
-                    }
-                )
-            
-            output = {
-                "interventions_triggered": interventions,
-                "last_intervention_time": int(time.time())
-            }
-            
-            self.log_execution(state, output)
-            return output
-            
-        except Exception as e:
-            self.log_error(e, state)
-            return {"interventions_triggered": []}
 
 
 # Initialize agent instances
@@ -161,6 +23,7 @@ performance_agent = PerformanceAgent("performance_agent")
 engagement_agent = EngagementAgent("engagement_agent")
 curriculum_agent = CurriculumAgent("curriculum_agent")
 motivation_agent = MotivationAgent("motivation_agent")
+profile_generator = PerformanceProfileGenerator()
 
 
 # Node functions for LangGraph
@@ -270,7 +133,7 @@ async def curriculum_agent_node(state: AgentState) -> AgentState:
 
 
 async def motivation_agent_node(state: AgentState) -> AgentState:
-    """Execute Motivation Agent"""
+    """Execute Motivation Agent with comprehensive intervention logic"""
     output = await motivation_agent.execute(state)
     state.update(output)
     state["agents_executed"].append("motivation_agent")
@@ -278,16 +141,79 @@ async def motivation_agent_node(state: AgentState) -> AgentState:
     return state
 
 
-def route_by_cognitive_load(state: AgentState) -> str:
-    """Route workflow based on cognitive load thresholds"""
-    score = state.get("cognitive_load_score", 50)
+async def generate_profile_node(state: AgentState) -> AgentState:
+    """Generate comprehensive student performance profile"""
+    try:
+        clr_data = state.get("clr_result", {})
+        performance_data = {
+            "quiz_accuracy": state.get("quiz_accuracy", 0),
+            "learning_velocity": state.get("learning_velocity", 0),
+            "improvement_trend": state.get("improvement_trend", "stable"),
+            "weak_topics": state.get("weak_topics", []),
+            "task_completion_rate": state.get("task_completion_rate", 0),
+            "plateau_detected": state.get("plateau_detected", False)
+        }
+        engagement_data = {
+            "engagement_score": state.get("engagement_score", 0),
+            "dropout_risk": state.get("dropout_risk", 0),
+            "session_frequency": state.get("session_frequency", 0),
+            "interaction_depth": state.get("interaction_depth", 0),
+            "dropout_signals": state.get("dropout_signals", [])
+        }
+        
+        profile = profile_generator.generate_profile(
+            state["student_id"], clr_data, performance_data, engagement_data
+        )
+        await profile_generator.store_profile(profile)
+        
+        # Add profile to state
+        state["student_profile"] = {
+            "combined_health_score": profile.combined_health_score,
+            "risk_level": profile.risk_level,
+            "recommended_actions": profile.recommended_actions,
+            "cognitive_load_summary": profile.cognitive_load_summary,
+            "performance_summary": profile.performance_summary,
+            "engagement_summary": profile.engagement_summary
+        }
+        state["agents_executed"].append("generate_profile")
+        
+        logger.info(f"📋 Profile generated: Risk={profile.risk_level}, Health={profile.combined_health_score:.1f}")
+        
+    except Exception as e:
+        logger.error(f"Error generating profile: {e}")
+        state["student_profile"] = {}
     
-    if score < settings.CLR_THRESHOLD_MEDIUM:
-        return "performance_agent"
-    elif score < settings.CLR_THRESHOLD_HIGH:
-        return "performance_agent"  # Will also trigger curriculum
-    else:
-        return "motivation_agent"  # Critical intervention
+    return state
+
+
+def route_by_cognitive_load(state: AgentState) -> str:
+    """Route workflow based on cognitive load, performance, and engagement thresholds"""
+    cognitive_score = state.get("cognitive_load_score", 50)
+    dropout_risk = state.get("dropout_risk", 0.0)
+    improvement_trend = state.get("improvement_trend", "stable")
+    
+    # Critical intervention needed
+    if cognitive_score >= settings.CLR_THRESHOLD_HIGH or dropout_risk > 0.7:
+        return "motivation_agent"
+    
+    # Performance declining rapidly with medium-high dropout risk
+    if improvement_trend == "declining" and dropout_risk > 0.5:
+        return "motivation_agent"
+    
+    # Normal flow - analyze performance and engagement
+    return "performance_agent"
+
+
+def route_after_engagement(state: AgentState) -> str:
+    """Route after engagement analysis"""
+    dropout_risk = state.get("dropout_risk", 0.0)
+    
+    # High dropout risk - trigger motivation agent
+    if dropout_risk > 0.6:
+        return "motivation_agent"
+    
+    # Normal flow - continue to profile generation
+    return "generate_profile"
 
 
 # Build LangGraph
@@ -298,6 +224,7 @@ workflow.add_node("fetch_data", fetch_behavioral_data_node)
 workflow.add_node("clr_agent", clr_agent_node)
 workflow.add_node("performance_agent", performance_agent_node)
 workflow.add_node("engagement_agent", engagement_agent_node)
+workflow.add_node("generate_profile", generate_profile_node)
 workflow.add_node("curriculum_agent", curriculum_agent_node)
 workflow.add_node("motivation_agent", motivation_agent_node)
 
@@ -317,7 +244,18 @@ workflow.add_conditional_edges(
 
 # Low/medium cognitive load path
 workflow.add_edge("performance_agent", "engagement_agent")
-workflow.add_edge("engagement_agent", "curriculum_agent")
+
+# Conditional routing after engagement
+workflow.add_conditional_edges(
+    "engagement_agent",
+    route_after_engagement,
+    {
+        "motivation_agent": "motivation_agent",
+        "generate_profile": "generate_profile"
+    }
+)
+
+workflow.add_edge("generate_profile", "curriculum_agent")
 workflow.add_edge("curriculum_agent", END)
 
 # High cognitive load path
@@ -357,7 +295,12 @@ async def execute_agent_workflow(student_id: str, session_id: str) -> Dict[str, 
             "intervention_effectiveness": {},
             "agents_executed": [],
             "agent_outputs": {},
-            "execution_errors": []
+            "execution_errors": [],
+            "student_profile": None,
+            "weak_topics": [],
+            "task_completion_rate": 0.0,
+            "return_frequency": {},
+            "dropout_signals": []
         }
         
         # Execute workflow

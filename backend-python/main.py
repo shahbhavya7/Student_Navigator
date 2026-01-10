@@ -45,6 +45,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"📡 API available at http://0.0.0.0:8000")
         logger.info(f"📚 API docs at http://0.0.0.0:8000/docs")
         logger.info("🔧 CLR maintenance service started")
+        logger.info("📝 Content generation service available")
         
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}")
@@ -99,6 +100,24 @@ app.include_router(bridge_router)
 # Import and include CLR router
 from api.clr import router as clr_router
 app.include_router(clr_router)
+
+# Import and include Performance and Engagement routers
+from api.performance import router as performance_router
+from api.engagement import router as engagement_router
+app.include_router(performance_router)
+app.include_router(engagement_router)
+
+# Import and include Curriculum router
+from api.curriculum import router as curriculum_router
+app.include_router(curriculum_router)
+
+# Import and include Motivation router
+from api.motivation import router as motivation_router
+app.include_router(motivation_router)
+
+# Import and include Content router
+from api.content import router as content_router
+app.include_router(content_router)
 
 
 @app.get("/")
